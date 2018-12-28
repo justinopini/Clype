@@ -1,0 +1,68 @@
+.maintheme{
+    -fx-background-color: #f6f6f6;
+    -fx-padding: 0 5 0 5;
+    -fx-alignment: center;
+    -fx-hgap: 10;
+    -fx-vgap:10;
+    -fx-spacing: 10;
+}
+
+.text{
+    -fx-font-family: "Arial";
+    -fx-font-size: 20px;
+}
+.messabeBox{
+    -fx-pref-width: 1000px;
+    -fx-pref-height: 100px;
+}
+.holder{
+    -fx-padding: 5px;
+    -fx-border-radius: 2 2 2 2;
+    -fx-background-radius: 2 2 2 2;
+    -fx-min-height: 100px;
+    -fx-min-width: 200px;
+}
+.messageBubbleSent{
+    -fx-padding: 5px;
+    -fx-border-radius: 2 2 2 2;
+    -fx-background-radius: 2 2 2 2;
+    -fx-background-color: #32CD32;
+    -fx-min-height: 100px;
+    -fx-min-width: 200px;
+}
+.messageBubbleRecieved{
+    -fx-padding: 5px;
+    -fx-border-radius: 2 2 2 2;
+    -fx-background-radius: 2 2 2 2;
+    -fx-min-height: 100px;
+    -fx-min-width: 200px;
+    -fx-background-color: #2E86C1;
+}
+.button{
+    -fx-background-color: #ccccff;
+    -fx-pref-width: 150px;
+    -fx-font-family: "Arial";
+    -fx-font-size: 15px;
+}
+.buttons{
+    -fx-padding: 0 10 10 10;
+    -fx-spacing: 10px;
+}
+.box{
+    -fx-spacing:5.0;
+}
+.userInterface{
+    -fx-bottm: 0;
+}
+.messageString{
+    -fx-border-color: #000000;
+    -fx-pref-width: 1000px;
+    -fx-pref-height: 700px;
+    -fx-spacing: 10px;
+}
+.seperate{
+    -fx-pref-width: 500px;
+    -fx-padding: 10px;
+    -fx-pref-height: 700px;
+    -fx-spacing: 10px ;
+}
