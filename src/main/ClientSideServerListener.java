@@ -1,11 +1,8 @@
 package main;
 
-import javafx.application.Application;
-import javafx.stage.Stage;
-
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.logging.Logger;
-
-import static javafx.application.Application.launch;
 
 /** Client side listener for Clype. */
 public class ClientSideServerListener implements Runnable {
@@ -23,16 +20,16 @@ public class ClientSideServerListener implements Runnable {
 
   @Override
   public void run() {
-    try {
-      ClientGUI GUI = new ClientGUI();
-      GUI.initialize(client);
-      LOGGER.info("Successfully started GUI instance. ");
-      while (!client.getCloseConnection()) {
-        GUI.render(client.getReceivedMessages());
-        client.clearReceivedMessagesQueue();
+    ClientGUI gui = new ClientGUI();
+    gui.initialize(client);
+    LOGGER.info("Successfully started GUI instance. ");
+    boolean continueRender = true;
+    while (!client.getCloseConnection() && continueRender) {
+      try {
+        continueRender = gui.render(client.getReceivedMessages());
+      } catch (GeneralSecurityException | IOException e) {
+        LOGGER.severe(e.toString());
       }
-    } catch (Exception e) {
-      LOGGER.severe(e.toString());
     }
   }
 }

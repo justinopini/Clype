@@ -1,15 +1,12 @@
 package data;
 
-import javax.crypto.*;
-import javax.crypto.spec.PBEKeySpec;
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.Cipher;
 import java.io.Serializable;
-import java.security.InvalidKeyException;
-import java.security.Key;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.KeySpec;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -26,28 +23,20 @@ public abstract class ClypeData<T> implements Serializable {
   private final Type type;
   private final Date date;
   // Default encryption and decryption key to be used.
-  private final Key key;
-  private final transient Cipher cipher;
+  private final KeyPair key = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
   /** Instantiates an instance of {@link ClypeData} of the provided user name and {@link Type}. */
   public ClypeData(String sender, List<String> recipients, Type type)
-      throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeySpecException {
+      throws NoSuchAlgorithmException {
     this.recipients = recipients;
     this.sender = sender;
     this.type = type;
     this.date = new Date();
-    this.key = generateRandomKey(sender);
-    this.cipher = Cipher.getInstance("AES");
   }
 
-  private static Key generateRandomKey(String username)
-      throws NoSuchAlgorithmException, InvalidKeySpecException {
-    SecureRandom random = new SecureRandom();
-    byte[] salt = new byte[16];
-    random.nextBytes(salt);
-    KeySpec spec = new PBEKeySpec(username.toCharArray(), salt, 65536, 256); // AES-256
-    SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-    return new SecretKeySpec(factory.generateSecret(spec).getEncoded(), "AES");
+  /** Initialized a system messages by the server. */
+  public ClypeData(Type type) throws NoSuchAlgorithmException {
+    this("server", Collections.EMPTY_LIST, type);
   }
 
   /** Gets the {@link Type} of this instance. */
@@ -74,9 +63,7 @@ public abstract class ClypeData<T> implements Serializable {
   public abstract EncryptedData message();
 
   /** Gets the decrypted data being sent or received. */
-  public T getData()
-      throws IllegalBlockSizeException, BadPaddingException, ShortBufferException,
-          InvalidKeyException {
+  public T getData() throws GeneralSecurityException {
     return decrypt(message());
   }
 
@@ -88,28 +75,22 @@ public abstract class ClypeData<T> implements Serializable {
   /** Translates the provided piece of data from b */
   public abstract T fromBytes(byte[] data);
 
-  /** Encrypts the provided piece of data using the encryption key using AES. */
-  protected EncryptedData encrypt(T input)
-      throws InvalidKeyException, ShortBufferException, IllegalBlockSizeException,
-          BadPaddingException {
+  /** Encrypts the provided piece of data using the encryption key using RSA. */
+  protected EncryptedData encrypt(T input) throws GeneralSecurityException {
+    Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
     byte[] inputBytes = toBytes(input);
-    cipher.init(Cipher.ENCRYPT_MODE, key);
-    byte[] encrypted = new byte[cipher.getOutputSize(inputBytes.length)];
-    int encryptedLen = cipher.update(inputBytes, 0, inputBytes.length, encrypted, 0);
-    encryptedLen += cipher.doFinal(encrypted, encryptedLen);
-    return new EncryptedData(encrypted, encryptedLen);
+    cipher.init(Cipher.ENCRYPT_MODE, key.getPublic());
+    cipher.update(inputBytes);
+    return new EncryptedData(cipher.doFinal());
   }
 
-  /** Decrypts the provided piece of data using the encryption key using AES. */
-  protected T decrypt(EncryptedData encryptedInput)
-      throws InvalidKeyException, ShortBufferException, BadPaddingException,
-          IllegalBlockSizeException {
-    cipher.init(Cipher.DECRYPT_MODE, key);
-    byte[] decryptedOutput = new byte[cipher.getOutputSize(encryptedInput.len)];
-    int decryptedLen =
-        cipher.update(encryptedInput.data, 0, encryptedInput.len, decryptedOutput, 0);
-    cipher.doFinal(decryptedOutput, decryptedLen);
-    return fromBytes(decryptedOutput);
+  /** Decrypts the provided piece of data using the encryption key using RSA. */
+  protected T decrypt(EncryptedData encryptedInput) throws GeneralSecurityException {
+    Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+    cipher.init(Cipher.DECRYPT_MODE, key.getPrivate());
+    byte[] decryptedOutput = encryptedInput.data.clone();
+    T elem = fromBytes(cipher.doFinal(decryptedOutput));
+    return elem;
   }
 
   @Override
@@ -167,11 +148,9 @@ public abstract class ClypeData<T> implements Serializable {
   /** Represents an encrypted piece of data. */
   public static class EncryptedData implements Serializable {
     private final byte[] data;
-    private final int len;
 
-    public EncryptedData(byte[] encrypted, int encryptedLen) {
+    public EncryptedData(byte[] encrypted) {
       this.data = encrypted;
-      this.len = encryptedLen;
     }
   }
 }

@@ -2,14 +2,13 @@ package main;
 
 import data.ClypeData;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Optional;
-import java.util.UUID;
+import java.security.GeneralSecurityException;
+import java.util.*;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -18,9 +17,9 @@ public class ClypeClient {
   private final String username;
   private final String hostName;
   private final int port;
-  private final ArrayList<ClypeData<?>> sendQueue = new ArrayList<>();
-  private final ArrayList<ClypeData<?>> receiveQueue = new ArrayList<>();
-  private final ArrayList<String> activeUsers = new ArrayList<>();
+  private final ArrayDeque<ClypeData<?>> sendQueue = new ArrayDeque<>();
+  private final ArrayDeque<ClypeData<?>> receiveQueue = new ArrayDeque<>();
+  private final HashSet<String> activeUsers = new HashSet<>();
   private boolean closeConnection;
   private ObjectInputStream in;
   private ObjectOutputStream out;
@@ -59,9 +58,11 @@ public class ClypeClient {
           client = new ClypeClient(userArgs[0], hostArgs[0], Integer.parseInt(hostArgs[1]));
         }
       }
-    } catch (Exception e) {
+    } catch (ArrayIndexOutOfBoundsException e) {
       String anonymousUsername = UUID.randomUUID().toString();
-      LOGGER.info(String.format("Defaulting to anonymous local session of username %s.", anonymousUsername));
+      LOGGER.info(
+          String.format(
+              "Defaulting to anonymous local session of username %s.", anonymousUsername));
       client = new ClypeClient(anonymousUsername);
     }
     client.start();
@@ -76,16 +77,15 @@ public class ClypeClient {
       new Thread(ClientSideServerListener.of(this)).start();
       LOGGER.info(String.format("Client %s has successfully connected.", username));
       while (!closeConnection) {
-        for (ClypeData<?> data : sendQueue) {
-          sendData(data);
+        receiveData();
+        while (!sendQueue.isEmpty()) {
+          sendData(sendQueue.removeFirst());
         }
-        sendQueue.clear();
-        receiveData().ifPresent(receiveQueue::add);
       }
       in.close();
       out.close();
-    } catch (Exception e) {
-      LOGGER.severe(e.toString());
+    } catch (IOException e) {
+      e.printStackTrace();
     }
   }
 
@@ -98,20 +98,24 @@ public class ClypeClient {
     }
   }
 
-  public Optional<ClypeData<?>> receiveData() {
+  public void receiveData() {
     try {
       ClypeData<?> receivedData = (ClypeData<?>) this.in.readObject();
       if (receivedData.getType().equals(ClypeData.Type.LOG_OUT)) {
-        closeConnection = true;
+        closeConnection();
       } else if (receivedData.getType().equals(ClypeData.Type.LIST_USERS)) {
         activeUsers.clear();
         activeUsers.addAll(
             Arrays.stream(((String) receivedData.getData()).split(":"))
-                .collect(Collectors.toList()));
+                .collect(Collectors.toSet()));
+        LOGGER.info(String.format("Current users : %s", activeUsers.toString()));
+      } else {
+        receiveQueue.addLast(receivedData);
       }
-      return Optional.of(receivedData);
-    } catch (Exception e) {
-      return Optional.empty();
+    } catch (EOFException e) {
+      closeConnection();
+    } catch (IOException | ClassNotFoundException | GeneralSecurityException e) {
+      LOGGER.severe(e.toString());
     }
   }
 
@@ -124,19 +128,21 @@ public class ClypeClient {
   }
 
   public ArrayList<ClypeData<?>> getReceivedMessages() {
-    return new ArrayList<>(receiveQueue);
-  }
-
-  public ArrayList<String> getActiveUsers() {
-    return new ArrayList<>(activeUsers);
-  }
-
-  public void clearReceivedMessagesQueue() {
+    ArrayList<ClypeData<?>> received = new ArrayList<>(receiveQueue);
     receiveQueue.clear();
+    return received;
+  }
+
+  public HashSet<String> getActiveUsers() {
+    return activeUsers;
   }
 
   private void setUserNameOnStream(String userName) throws IOException {
     out.writeUTF(userName);
     out.flush();
+  }
+
+  private void closeConnection() {
+    closeConnection = true;
   }
 }

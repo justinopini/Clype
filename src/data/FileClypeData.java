@@ -1,14 +1,7 @@
 package data;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.ShortBufferException;
 import java.io.*;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidKeySpecException;
-import java.util.Collections;
+import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.Scanner;
 
@@ -18,20 +11,10 @@ public class FileClypeData extends ClypeData<FileClypeData.ClypeFile> {
   EncryptedData file;
 
   /** Instantiates a {@link FileClypeData} using the provided user name anf file name. */
-  public FileClypeData(String sender, List<String> recipients, String fileName)
-          throws NoSuchAlgorithmException, NoSuchPaddingException, FileNotFoundException,
-          IllegalBlockSizeException, BadPaddingException, ShortBufferException,
-          InvalidKeyException, InvalidKeySpecException {
+  public FileClypeData(String sender, List<String> recipients, String fileName) throws GeneralSecurityException, FileNotFoundException {
     super(sender, recipients, Type.FILE);
     this.fileName = fileName;
     this.file = super.encrypt(new ClypeFile(fileName));
-  }
-
-  public FileClypeData(String sender, String recipient, String fileName)
-          throws NoSuchPaddingException, BadPaddingException, NoSuchAlgorithmException,
-          IllegalBlockSizeException, FileNotFoundException, ShortBufferException,
-          InvalidKeyException, InvalidKeySpecException {
-    this(sender, Collections.singletonList(recipient), fileName);
   }
 
   @Override
@@ -46,7 +29,7 @@ public class FileClypeData extends ClypeData<FileClypeData.ClypeFile> {
 
   @Override
   public ClypeFile fromBytes(byte[] data) {
-    return new ClypeFile(fileName, data.toString());
+    return new ClypeFile(fileName, new String(data));
   }
 
   /** Represents the actual data to be sent from one user to another user. */
@@ -78,7 +61,7 @@ public class FileClypeData extends ClypeData<FileClypeData.ClypeFile> {
       out.close();
     }
 
-    public String getFileName(){
+    public String getFileName() {
       return fileName;
     }
   }

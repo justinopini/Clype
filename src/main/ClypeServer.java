@@ -3,20 +3,13 @@ package main;
 import data.ClypeData;
 import data.MessageClypeData;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.ShortBufferException;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidKeySpecException;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -58,20 +51,19 @@ public class ClypeServer {
       skt.setSoTimeout(CONNECTION_WAIT);
       while (!closeConnection) {
         try {
-          updateCurrentUsers();
+          cleanup();
+          update();
           Socket clientSocket = skt.accept();
           // Because of the order these are initialized in the client, out has to be before in.
           ObjectOutputStream out = new ObjectOutputStream(clientSocket.getOutputStream());
           ObjectInputStream in = new ObjectInputStream(clientSocket.getInputStream());
           String username = in.readUTF();
-          ServerSideClientIO serverSideClientIOElement =
-                  new ServerSideClientIO(this, username, in, out);
+          ServerSideClientIO serverSideClientIOElement = new ServerSideClientIO(this, in, out);
           serverSideClientIOList.put(username, serverSideClientIOElement);
           new Thread(serverSideClientIOElement).start();
           LOGGER.info(String.format("%s has successfully connected to the server.", username));
-        }
-        catch (SocketTimeoutException ignored) {}
-        catch (Exception e){
+        } catch (SocketTimeoutException | EOFException ignored) {
+        } catch (Exception e) {
           LOGGER.severe(e.toString());
         }
       }
@@ -94,23 +86,35 @@ public class ClypeServer {
     }
   }
 
-  /** Closes the connection to a client that is currently being served. */
-  synchronized void remove(String userName) {
-    this.serverSideClientIOList.remove(userName);
-    // Shut down the server if there are no more clients to serve.
-    if (serverSideClientIOList.isEmpty()) {
-      this.closeConnection = true;
-    }
-  }
-
-  private void updateCurrentUsers()
-          throws NoSuchPaddingException, ShortBufferException, NoSuchAlgorithmException,
-          IllegalBlockSizeException, BadPaddingException, InvalidKeyException, InvalidKeySpecException {
+  /** Updates all the users as to who else is online. */
+  private void update() throws Exception {
     String currentUsers = String.join(":", serverSideClientIOList.keySet());
     if (!serverSideClientIOList.isEmpty()) {
-      broadcast(new MessageClypeData("anonymous", Collections.EMPTY_LIST, currentUsers));
+      broadcast(new MessageClypeData(ClypeData.Type.LIST_USERS, currentUsers));
     }
     LOGGER.info(
         String.format("There are %d active users currently. ", serverSideClientIOList.size()));
+  }
+
+  /**
+   * Cleans up the ledger of active clients based on who has logged out or connection failures.
+   *
+   * <p>In case all the clients being served are closed, the server will also self-terminate.
+   */
+  private void cleanup() {
+    for (Map.Entry<String, ServerSideClientIO> connection : serverSideClientIOList.entrySet()) {
+      if (connection.getValue().isClosed()) {
+        serverSideClientIOList.remove(connection.getKey());
+        // Shut down the server if there are no more clients to serve.
+        if (serverSideClientIOList.isEmpty()) {
+          LOGGER.info("Shutting down server.");
+          closeConnection();
+        }
+      }
+    }
+  }
+
+  private void closeConnection() {
+    closeConnection = true;
   }
 }

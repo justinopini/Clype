@@ -28,8 +28,12 @@ import java.awt.*;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -69,12 +73,11 @@ public class ClientGUI extends Application {
         "\uD83D\uDC4E"
       };
   private static final Logger LOGGER = Logger.getGlobal();
+  private static final ArrayDeque<Pair<String, RenderedData>> rawMessages = new ArrayDeque<>();
+  private static final ArrayList<String> authorizedRecipients = new ArrayList<>();
+  private static final GridPane root = new GridPane();
   private static ClypeClient client;
-  private final ArrayList<Pair<String, Node>> rawMessages = new ArrayList<>();
-  private final ArrayList<String> authorizedRecipients = new ArrayList<>();
-  private final GridPane root = new GridPane();
-  private int height = 0;
-  private ArrayList<String> usersList = new ArrayList<>();
+  private static HashSet<String> usersList = new HashSet<>();
 
   private static String attachMedia(){
     String filePath = "";
@@ -92,107 +95,110 @@ public class ClientGUI extends Application {
     new Thread(() -> launch(args)).start();
   }
 
-  void initialize(ClypeClient client) {
-    main(null);
+  static void initialize(ClypeClient client) {
     ClientGUI.client = client;
+    main(null);
   }
 
   /** Renders the received messages from other users. */
-  void render(List<ClypeData<?>> messages) throws Exception {
-    boolean guiCloseConnection = false;
-    while (!client.getCloseConnection() && ! guiCloseConnection) {
-      for (ClypeData<?> data : messages){
-        switch (data.getType()){
-          case MESSAGE -> {
-            Label messageReceived = new Label();
-            String receivedData = (String) data.getData();
-            for (int emojiIndex = 0;emojiIndex < TEXT_EMOJIS.length;emojiIndex++) {
-              receivedData = receivedData.replace(TEXT_EMOJIS[emojiIndex], UNICODE_EMOJIS[emojiIndex]);
+  static boolean render(List<ClypeData<?>> messages) throws GeneralSecurityException, IOException {
+    for (ClypeData<?> data : messages){
+        if (!data.getSender().equals(client.getUsername())){
+            try{
+                RenderedData renderedData = renderData(data);
+                rawMessages.addLast(new Pair<>(data.getSender(), renderedData));
+            } catch (LogoutException e){
+                return false;
             }
-            messageReceived.setText(receivedData);
-            messageReceived.setWrapText(true);
-            messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
-            height += messageReceived.getHeight() + 10;
-            rawMessages.add(new Pair<>(data.getSender(), messageReceived));
-          }
-          case IMAGE ->  {
-            ImageView im = new ImageView();
-            Image image = new Image(new ByteArrayInputStream(((PictureCypeData.ClypeImage)data.getData()).image));
-            double scaling = image.getHeight() / 250;
-            im.setFitHeight(image.getHeight() / scaling);
-            im.setFitWidth(image.getWidth() / scaling);
-            im.setImage(image);
-            height += im.getFitHeight() + 10;
-            rawMessages.add(new Pair<>(data.getSender(), im));
-          }
-          case VIDEO ->  {
-            File nf = new File("video_temp_location_for_memory.mp4");
-            FileOutputStream fw = new FileOutputStream(nf);
-            fw.write(((VideoClypeData.ClypeVideo)data.getData()).video);
-            fw.flush();
-            fw.close();
-            MediaPlayer player =
-            new MediaPlayer(
-                new Media(
-                    "file:/"
-                        + Paths.get(".").toAbsolutePath().normalize().toString().replace("\\", "/")
-                        + "/video_temp_location_for_memory.mp4"));
-            MediaControl mediaControl = new MediaControl(player);
-            mediaControl.mediaView.setFitHeight(250);
-            mediaControl.mediaView.setFitHeight(250);
-            mediaControl.setMaxHeight(250);
-            mediaControl.setMaxWidth(250);
-            height += mediaControl.getMaxHeight() + 10;
-            rawMessages.add(new Pair<>(data.getSender(), mediaControl));
-          }
-          case FILE -> {
-            FileClypeData.ClypeFile receivedData = (FileClypeData.ClypeFile) data.getData();
-            receivedData.writeFileContents();
-            Label messageReceived = new Label();
-            messageReceived.setText(String.format("File received and written to %s", receivedData.getFileName()));
-            messageReceived.setWrapText(true);
-            messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
-            height += messageReceived.getHeight() + 10;
-            rawMessages.add(new Pair<>(data.getSender(), messageReceived));
-          }
-          case LIST_USERS -> { usersList = client.getActiveUsers(); }
-          case LOG_OUT -> {guiCloseConnection = true;}
-          default -> throw new IllegalStateException("Unexpected value: " + data.getType());
+
         }
-      }
     }
+    return true;
   }
+
+  /** PReturns a {@link RenderedData} provided the given {@link ClypeData}.*/
+    private static RenderedData renderData(ClypeData<?> data) throws GeneralSecurityException, IOException, LogoutException {
+        switch (data.getType()){
+            case MESSAGE -> {
+                Label messageReceived = new Label();
+                String receivedData = (String) data.getData();
+                for (int emojiIndex = 0;emojiIndex < TEXT_EMOJIS.length;emojiIndex++) {
+                    receivedData = receivedData.replace(TEXT_EMOJIS[emojiIndex], UNICODE_EMOJIS[emojiIndex]);
+                }
+                messageReceived.setText(receivedData);
+                messageReceived.setWrapText(true);
+                messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
+                return new RenderedData(messageReceived, messageReceived.getHeight() + 10);
+            }
+            case IMAGE ->  {
+                ImageView im = new ImageView();
+                Image image = new Image(new ByteArrayInputStream(((PictureCypeData.ClypeImage)data.getData()).image));
+                double scaling = image.getHeight() / 250;
+                im.setFitHeight(image.getHeight() / scaling);
+                im.setFitWidth(image.getWidth() / scaling);
+                im.setImage(image);
+                return new RenderedData(im, im.getFitHeight() + 10);
+            }
+            case VIDEO ->  {
+                File nf = new File("video_temp_location_for_memory.mp4");
+                FileOutputStream fw = new FileOutputStream(nf);
+                fw.write(((VideoClypeData.ClypeVideo)data.getData()).video);
+                fw.flush();
+                fw.close();
+                MediaPlayer player = new MediaPlayer(
+                        new Media(
+                                "file:/"
+                                        + Paths.get(".").toAbsolutePath().normalize().toString().replace("\\", "/")
+                                        + "/video_temp_location_for_memory.mp4"));
+                MediaControl mediaControl = new MediaControl(player);
+                mediaControl.mediaView.setFitHeight(250);
+                mediaControl.mediaView.setFitHeight(250);
+                mediaControl.setMaxHeight(250);
+                mediaControl.setMaxWidth(250);
+                return new RenderedData(mediaControl,mediaControl.getMaxHeight() + 10);
+            }
+            case FILE -> {
+                FileClypeData.ClypeFile receivedData = (FileClypeData.ClypeFile) data.getData();
+                receivedData.writeFileContents();
+                Label messageReceived = new Label();
+                messageReceived.setText(String.format("File received and written to %s", receivedData.getFileName()));
+                messageReceived.setWrapText(true);
+                messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
+                return new RenderedData(messageReceived, messageReceived.getHeight() + 10);
+            }
+            case LIST_USERS -> { usersList = client.getActiveUsers(); }
+            case LOG_OUT -> {throw new LogoutException();}
+            default -> throw new IllegalStateException("Unexpected value: " + data.getType());
+        }
+        // Exhaustive switch.
+        throw new LogoutException();
+    }
 
   @Override
   public void start(Stage primaryStage) {
-    try {
       primaryStage.setTitle("Multi-session user selection");
       VBox rootVBox = new VBox();
       ListView<String> userView = new ListView<>();
-      ObservableList<String> observableUsersList = FXCollections.observableList(usersList);
+      ObservableList<String> observableUsersList = FXCollections.observableList(List.copyOf(usersList));
       userView.setItems(observableUsersList);
-
-      TimerService service = TimerService.getNewTimeService(30);
+      Label info = new Label("Users list updates every 10 seconds");
+      TimerService service = TimerService.getNewTimeService(10);
       service.setOnSucceeded(
           t -> {
-            try {
-              observableUsersList.setAll(usersList);
+              if (observableUsersList.size() > 0){
+                observableUsersList.clear();
+              }
+              observableUsersList.addAll(usersList);
               userView.setItems(observableUsersList);
-            } catch (Exception e) {
-              LOGGER.severe(e.getMessage());
-            }
           });
       service.start();
-
-      Label info = new Label("Users list updates every 10 seconds");
-      Button launchGUI = new Button("Launch Session");
-
       userView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
       userView
           .getSelectionModel()
           .getSelectedItems()
           .addListener((ListChangeListener<String>) c -> {});
 
+      Button launchGUI = new Button("Launch Session");
       launchGUI.setOnAction(
           ae -> {
             authorizedRecipients.clear();
@@ -208,15 +214,25 @@ public class ClientGUI extends Application {
       Scene scene = new Scene(rootVBox, 400, 400);
       primaryStage.setScene(scene);
       primaryStage.show();
-    } catch (Exception e) {
-      LOGGER.severe(e.getMessage());
-    }
   }
+
+  /** A piece of {@link ClypeData} in JavaFX {@link Node} format and its sizing properties. */
+  private static class RenderedData{
+      private final Node node;
+      private final double height;
+
+      private RenderedData(Node node, double height) {
+          this.node = node;
+          this.height = height;
+      }
+  }
+
+  /** Exception when the user has terminated the connection. */
+  private static class LogoutException extends Exception{}
 
   private class PrimaryStage extends Stage {
     PrimaryStage() {
       super();
-      try {
         HBox messageString = new HBox();
         VBox messagesSent = new VBox();
         VBox messagesReceived = new VBox();
@@ -230,37 +246,43 @@ public class ClientGUI extends Application {
         ListView<String> users = new ListView<>();
         ObservableList<String> list = FXCollections.observableArrayList();
         users.setItems(list);
-        ObservableList<String> observableUsersList = FXCollections.observableList(usersList);
+        ObservableList<String> observableUsersList = FXCollections.observableList(List.copyOf(usersList));
         users.setItems(observableUsersList);
 
-        TimerService service = TimerService.getNewTimeService(2);
+        // Lambda variables should be effectively final hence one element array.
+        final int[] height = {0};
+        TimerService service = TimerService.getNewTimeService(5);
         service.setOnSucceeded(
                 t -> {
-                  while (!rawMessages.isEmpty()) {
-                    Pair<String, Node> pair  = rawMessages.remove(0);
-                    // Clear up some space if we need it.
-                    if (height > 500) {
-                      messagesSent.getChildren().remove(0);
-                      messagesReceived.getChildren().remove(0);
+                    while (!rawMessages.isEmpty()) {
+                        Pair<String, RenderedData> pair  = rawMessages.removeFirst();
+                        LOGGER.info(String.format("Message from %s received", pair.getKey()));
+                        // Clear up some space if we need it.
+                        if (height[0] > 500) {
+                            messagesSent.getChildren().remove(0);
+                            messagesReceived.getChildren().remove(0);
+                        }
+                        Node node = pair.getValue().node;
+                        if (pair.getKey().equals(client.getUsername())) {
+                            node.getStyleClass().add("messageBubbleSent");
+                            messagesSent.getChildren().add(node);
+                            Label holder = new Label();
+                            holder.getStyleClass().add("holder");
+                            messagesReceived.getChildren().add(holder);
+                        } else {
+                            node.getStyleClass().add("messageBubbleReceived");
+                            messagesReceived.getChildren().add(node);
+                            Label holder = new Label();
+                            holder.getStyleClass().add("holder");
+                            messagesSent.getChildren().add(holder);
+                        }
+                        height[0] += pair.getValue().height + 120;
                     }
-                    Node node = pair.getValue();
-                    if (pair.getKey().equals(client.getUsername())) {
-                      node.getStyleClass().add("messageBubbleSent");
-                      messagesSent.getChildren().add(node);
-                      Label holder = new Label();
-                      holder.getStyleClass().add("holder");
-                      messagesReceived.getChildren().add(holder);
-                    } else {
-                      node.getStyleClass().add("messageBubbleReceived");
-                      messagesReceived.getChildren().add(node);
-                      Label holder = new Label();
-                      holder.getStyleClass().add("holder");
-                      messagesSent.getChildren().add(holder);
+                    if (observableUsersList.size() > 0){
+                        observableUsersList.clear();
                     }
-                    height += 120;
-                  }
-                  observableUsersList.setAll(usersList);
-                  users.setItems(observableUsersList);
+                    observableUsersList.addAll(usersList);
+                    users.setItems(observableUsersList);
                 });
         service.start();
 
@@ -272,9 +294,11 @@ public class ClientGUI extends Application {
         sendBtn.setOnAction(
                 ae -> {
                   try {
-                    client.sendData(new MessageClypeData(client.getUsername(), authorizedRecipients, message.getText()));
-                  } catch (Exception e) {
-                    LOGGER.severe(e.getMessage());
+                      MessageClypeData data = new MessageClypeData(client.getUsername(), authorizedRecipients, message.getText());
+                      client.sendData(data);
+                      rawMessages.addLast(new Pair<>(client.getUsername(), renderData(data)));
+                  } catch (GeneralSecurityException | IOException | LogoutException e) {
+                    LOGGER.severe(e.toString());
                   }
                   message.clear();
                 });
@@ -287,9 +311,11 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new PictureCypeData(client.getUsername(), authorizedRecipients, fieldPath));
-                    } catch (Exception e) {
-                      LOGGER.severe(e.getMessage());
+                        PictureCypeData data = new PictureCypeData(client.getUsername(), authorizedRecipients, fieldPath);
+                        client.sendData(data);
+                        rawMessages.addLast(new Pair<>(client.getUsername(), renderData(data)));
+                    } catch (GeneralSecurityException | IOException | LogoutException e) {
+                        LOGGER.severe(e.toString());
                     }
                   }
                 });
@@ -298,9 +324,11 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new VideoClypeData(client.getUsername(), authorizedRecipients, fieldPath));
-                    } catch (Exception e) {
-                      LOGGER.severe(e.getMessage());
+                        VideoClypeData data = new VideoClypeData(client.getUsername(), authorizedRecipients, fieldPath);
+                        client.sendData(data);
+                        rawMessages.addLast(new Pair<>(client.getUsername(), renderData(data)));
+                    } catch (GeneralSecurityException | IOException | LogoutException e) {
+                        LOGGER.severe(e.toString());
                     }
                   }
                 });
@@ -309,9 +337,11 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new FileClypeData(client.getUsername(), authorizedRecipients, fieldPath));
-                    } catch (Exception e) {
-                      LOGGER.severe(e.getMessage());
+                        FileClypeData data = new FileClypeData(client.getUsername(), authorizedRecipients, fieldPath);
+                        client.sendData(data);
+                        rawMessages.addLast(new Pair<>(client.getUsername(), renderData(data)));
+                    } catch (GeneralSecurityException | IOException | LogoutException e) {
+                        LOGGER.severe(e.toString());
                     }
                   }
                 });
@@ -347,9 +377,6 @@ public class ClientGUI extends Application {
         super.setTitle("Clype : Clarkson Skype");
         super.setScene(scene);
         super.show();
-      } catch (Exception e) {
-        LOGGER.severe(e.getMessage());
-      }
     }
   }
 }
