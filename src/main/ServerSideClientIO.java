@@ -1,101 +1,66 @@
 package main;
 
 import data.ClypeData;
-import data.MessageClypeData;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.Socket;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.logging.Logger;
 
-/**
- * @author Justin Mekenye Opini
- * @author Hannah Defazio
- * @version 1.0
- * Client of package main
- */
-
+/** Caters to the information exchange between server and a single client of this instance. */
 public class ServerSideClientIO implements Runnable {
-    private boolean closeConnection;
-    private ClypeData dataToReceiveFromClient;
-    private String users; // to store the users
-    private ClypeData dataToSendToClient;
-    private ObjectInputStream inFromClient;
-    private ObjectOutputStream outToClient;
-    private ClypeServer	server;
-    //private Socket clientSocket;
-    public ServerSideClientIO(ClypeServer server,Socket clientSocket, ObjectInputStream  in,ObjectOutputStream out ){
-        this.dataToReceiveFromClient = null;
-        this.dataToSendToClient = null;
-        this.inFromClient = in;
-        this.outToClient = out;
-        this.closeConnection = false;
-        this.server = server;
-        //this.clientSocket = clientSocket;
-        this.users = "\n";
-    }
-    @Override
-    public void run(){
-        //try {
-        //    this.outToClient = new ObjectOutputStream(clientSocket.getOutputStream());
-            //this.inFromClient  = new ObjectInputStream(clientSocket.getInputStream());
-       // } catch (IOException e) {
-        //    e.printStackTrace();
-        //}
-        while(!this.closeConnection){
-            this.receiveData();
-            if (dataToReceiveFromClient != null)
-                this.server.broadcast(this.dataToReceiveFromClient);
-            else {
-                try {
-                    this.outToClient.writeObject(new MessageClypeData("",this.users,-1)); //set to -1 to filter out the users
-                } catch (IOException e) {
-                    this.closeConnection = true;
-                }
-            }
-        }
+  private static final Logger LOGGER = Logger.getGlobal();
+  private final ClypeServer server;
+  private final String usersName;
+  private final ObjectInputStream in;
+  private final ObjectOutputStream out;
+  private final ArrayList<ClypeData<?>> sendQueue = new ArrayList<>();
+  private boolean closeConnection = false;
 
-    }
-    public void receiveData(){
-        try {
-            Object BUFFER = this.inFromClient.readObject();
-            try {
-                this.dataToReceiveFromClient = (ClypeData) BUFFER;
+  public ServerSideClientIO(
+      ClypeServer server, String usersName, ObjectInputStream in, ObjectOutputStream out) {
+    this.server = server;
+    this.usersName = usersName;
+    this.in = in;
+    this.out = out;
+  }
 
-            }catch (Exception e){
-                if(BUFFER.toString().equals("DONE")) {
-                    this.server.remove(this);
-                    this.closeConnection = true;
-                }
-                else if(BUFFER.toString().equals("LISTUSERS")) {
-                    this.users = "";
-                    boolean first = true;
-                    for (String aServerSideClientIOUsername : this.server.getServerSideClientIOList().keySet()){
-                            if (first) {
-                                this.users += aServerSideClientIOUsername;
-                                first = false;
-                            } else {
-                                this.users += ":" ;
-                                this.users += aServerSideClientIOUsername;
-                            }
-                    }
-                    this.dataToReceiveFromClient = null;
-                }
-            }
-        }catch (IOException ioe){
-            System.out.println(ioe.getMessage());
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
+  @Override
+  public void run() {
+    while (!this.closeConnection) {
+      receiveData().ifPresent(sendQueue::add);
+      for (ClypeData<?> data : sendQueue) {
+        if (data.getRecipients().isEmpty()) {
+          server.broadcast(data);
+        }else {
+          server.broadcast(data, new HashSet<>(data.getRecipients()));
         }
+      }
+      sendQueue.clear();
     }
-    public void sendData(){
-        try {
-            this.outToClient.writeObject(this.dataToSendToClient);
-        }catch (IOException ioe){
-            System.err.println(ioe.getMessage());
-        }
+  }
+
+  public Optional<ClypeData<?>> receiveData() {
+    try {
+      ClypeData<?> receivedData = (ClypeData<?>) in.readObject();
+      if (receivedData.getType().equals(ClypeData.Type.LOG_OUT)) {
+        server.remove(usersName);
+        closeConnection = true;
+      }
+      return Optional.of(receivedData);
+    } catch (IOException | ClassNotFoundException e) {
+      return Optional.empty();
     }
-    public void setDataToSendToClient(ClypeData dataToSendToClient){
-        this.dataToSendToClient = dataToSendToClient;
+  }
+
+  public void sendData(ClypeData<?> dataToSendToClient) {
+    try {
+      out.writeObject(dataToSendToClient);
+    } catch (IOException ioe) {
+      LOGGER.severe(ioe.getMessage());
     }
+  }
 }

@@ -1,319 +1,142 @@
 package main;
-import data.*;
+
+import data.ClypeData;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.net.UnknownHostException;
-
-/**
- * @author Justin Mekenye Opini
- * @author Hannah Defazio
- * @version 2.0
- * Client of package main
- */
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class ClypeClient {
-    private String userName;
-    private String hostName;
-    private int port;
-    private boolean closeConnection;
-    private ClypeData dataToSendToServer;
-    private ClypeData dataToReceiveFromServer;
-    //private Scanner inFromStd;
-    private ObjectInputStream inFromServer;
-    private ObjectOutputStream outToServer;
-    private String userInput;
-    private Boolean recievedInput;
-    private String userMessage;
-    private Boolean isRecieved;
-    private byte[] pictueRecieved;
-    private byte[] videoRecieved;
-    private String currentSneder;
-    private String[] keyboardEmojis = new String[]{":)",";)",":(","B)",":D","D:",":d",";p",":p",":o",":s",":x",":|",":/",":[",":>",":@",":*",":!","o:)",">:-o",">:-)",":3","(y)","(n)"};
-    private String[] unicodeEmojis = new String[]{"\uD83D\uDE0A","\uD83D\uDE09","\uD83D\uDE1F","\uD83D\uDE0E","\uD83D\uDE03","\uD83D\uDE29","\uD83D\uDE0B","\uD83D\uDE1C","\uD83D\uDE1B","\uD83D\uDE2E","\uD83D\uDE16","\uD83D\uDE36","\uD83D\uDE10","\uD83D\uDE15","\uD83D\uDE33","\uD83D\uDE0F","\uD83D\uDE37","\uD83D\uDE18","\uD83D\uDE2C","\uD83D\uDE07","\uD83D\uDE20","\uD83D\uDE08","\uD83D\uDE3A","\uD83D\uDC4D","\uD83D\uDC4E"};
-    public String users;
-    /**
-     * @param userName String	representing	name	of	the	client
-     * @param hostName String	representing	name	of	the	computer	representing	the	server
-     * @param port Integer	representing	port	number	on	server	connected	to
-     */
-    public ClypeClient(String userName,String hostName,int port) throws IllegalArgumentException{
-        if (userName == null || hostName == null || port < 1024)
-            throw new IllegalArgumentException("Username/Hostname is null or port number is below 1024");
-        this.userName = userName;
-        this.hostName = hostName;
-        this.port = port;
-        this.closeConnection = false;
-        this.dataToSendToServer = null;
-        this.dataToReceiveFromServer = null;
-        this.inFromServer = null;
-        this.outToServer = null;
-        this.userInput = "";
-        this.recievedInput = false;
-        this.isRecieved = false;
-        this.pictueRecieved = new byte[8192];
-        this.videoRecieved = null;
-        users = this.userName;
+  private static final Logger LOGGER = Logger.getGlobal();
+  private final String username;
+  private final String hostName;
+  private final int port;
+  private final ArrayList<ClypeData<?>> sendQueue = new ArrayList<>();
+  private final ArrayList<ClypeData<?>> receiveQueue = new ArrayList<>();
+  private final ArrayList<String> activeUsers = new ArrayList<>();
+  private boolean closeConnection;
+  private ObjectInputStream in;
+  private ObjectOutputStream out;
+
+  public ClypeClient(String username, String hostName, int port) {
+    if (username == null || hostName == null || port < 1024) {
+      throw new IllegalArgumentException("Username/Hostname is null or port number is below 1024");
     }
+    this.username = username;
+    this.hostName = hostName;
+    this.port = port;
+    this.closeConnection = false;
+    this.in = null;
+    this.out = null;
+  }
 
-    /**
-     * @param userName String	representing	name	of	the	client
-     * @param hostName String	representing	name	of	the	computer	representing	the	server
-     */
-    public ClypeClient(String userName,String hostName)
-    {
-        this(userName, hostName, 7000);
-    }
+  public ClypeClient(String username, String hostName) {
+    this(username, hostName, 5000);
+  }
 
-    /**
-     * @param userName String	representing	name	of	the	client
-     */
+  public ClypeClient(String username) {
+    this(username, "localhost");
+  }
 
-    public ClypeClient(String userName){
-        this(userName,"localhost");
-    }
-    public ClypeClient(){
-        this("Anon");
-    }
-
-    /**
-     * Runnable multithreading
-     */
-    public void start(){
-        Socket skt = null;
-        try {
-            //this.inFromStd = new Scanner(System.in);
-            skt = new Socket(this.hostName, this.port);
-
-            //Establish name with server
-            //Socket usernameSocket = new Socket(this.hostName,8000);
-            //ObjectOutputStream usernameSender = new ObjectOutputStream(usernameSocket.getOutputStream());
-            //usernameSender.writeUTF(this.userName);
-            //usernameSender.flush();
-            //usernameSender.reset();
-            //usernameSender.close();
-            //usernameSocket.close();
-
-
-            this.inFromServer  = new ObjectInputStream(skt.getInputStream());
-            this.outToServer = new ObjectOutputStream(skt.getOutputStream());
-            System.out.println("Connected");
-
-            this.outToServer.writeUTF(this.userName);
-            this.outToServer.flush();
-            this.outToServer.reset();
-
-            ClientSideServerListener clientSideServerListener = new ClientSideServerListener(this);
-            Thread clientSideServerThread =  new Thread(clientSideServerListener);
-            clientSideServerThread.start();
-
-            while (!this.closeConnection) {
-                while (!recievedInput)
-                    continue;
-                readClientData();
-                sendData();
-                if (this.dataToSendToServer == null)
-                    this.closeConnection = true; //break loop
-            }
-        } catch(UnknownHostException uhe)
-        {
-            System.err.println(uhe.getMessage());
+  public static void main(String[] args) {
+    ClypeClient client;
+    try {
+      String input = args[0];
+      String[] userArgs = input.split("@");
+      if (userArgs.length == 1) client = new ClypeClient(userArgs[0]);
+      else {
+        String[] hostArgs = userArgs[1].split(":");
+        if (hostArgs.length == 1) {
+          client = new ClypeClient(userArgs[0], hostArgs[0]);
+        } else {
+          client = new ClypeClient(userArgs[0], hostArgs[0], Integer.parseInt(hostArgs[1]));
         }
-        catch(IOException ioe)
-        {
-            System.out.println(ioe.getMessage());
-        }
-        try
-        {
-            this.dataToSendToServer = null;
-            sendData(); //close server
-            this.inFromServer.close();
-            this.outToServer.close();
-            skt.close();
-        }
-        catch(IOException | NullPointerException ioe)
-        {
-            System.err.println(ioe.getMessage());
-        }
+      }
+    } catch (Exception e) {
+      String anonymousUsername = UUID.randomUUID().toString();
+      LOGGER.info(String.format("Defaulting to anonymous local session of username %s.", anonymousUsername));
+      client = new ClypeClient(anonymousUsername);
     }
+    client.start();
+  }
 
-    /**
-     *
-     * @throws IOException
-     */
-    public void readClientData() throws IOException {
-        if (this.recievedInput) {
-            this.isRecieved = false;
-            String BUFFER = this.userInput;
-            if (BUFFER.equals("DONE")) {
-                this.closeConnection = true;
-                alert("DONE");
-            } else if (BUFFER.split(" ")[0].equals("SENDFILE")) {
-                FileClypeData temp = new FileClypeData(this.userName, BUFFER.split(" ")[1], 2);
-                temp.readFileContents();
-                if (temp.getData() != null)
-                    this.dataToSendToServer = temp;
-            } else if (BUFFER.split(" ")[0].equals("PICTURE")){
-                PictureCypeData temp = new PictureCypeData(BUFFER.split(" ")[1],this.userName,4);
-                if (temp.getData() != null)
-                    this.dataToSendToServer = temp;
-            } else if (BUFFER.split(" ")[0].equals("VIDEO")){
-                VideoClypeData temp = new VideoClypeData(BUFFER.split(" ")[1],this.userName,5);
-                if (temp.getData() != null)
-                    this.dataToSendToServer = temp;
-            }else if (BUFFER.equals("LISTUSERS")) {
-                this.dataToSendToServer = new MessageClypeData("", "", -1);
-                alert("LISTUSERS");
-            } else
-                this.dataToSendToServer = new MessageClypeData(this.userName, BUFFER, 1);
-            this.recievedInput = false;
+  public void start() {
+    try (Socket skt = new Socket(hostName, port)) {
+      LOGGER.info(skt.toString());
+      in = new ObjectInputStream(skt.getInputStream());
+      out = new ObjectOutputStream(skt.getOutputStream());
+      setUserNameOnStream(username);
+      new Thread(ClientSideServerListener.of(this)).start();
+      LOGGER.info(String.format("Client %s has successfully connected.", username));
+      while (!closeConnection) {
+        for (ClypeData<?> data : sendQueue) {
+          sendData(data);
         }
+        sendQueue.clear();
+        receiveData().ifPresent(receiveQueue::add);
+      }
+      in.close();
+      out.close();
+    } catch (Exception e) {
+      LOGGER.severe(e.toString());
     }
-    public void sendData() {
-        try {
-            this.outToServer.writeObject(this.dataToSendToServer);
-            this.outToServer.flush();
-        }catch (IOException ioe){
-            System.err.println(ioe.getMessage());
-        }
-    }
+  }
 
-    /**
-     *
-     * @param command to send done and listusers commands
-     */
-    public void alert(String command) {
-        try {
-            this.outToServer.writeObject(command);
-        }catch (IOException ioe){
-            System.err.println(ioe.getMessage());
-        }
+  public void sendData(ClypeData<?> data) {
+    try {
+      out.writeObject(data);
+      out.flush();
+    } catch (IOException ioe) {
+      LOGGER.severe(ioe.getMessage());
     }
-    public void receiveData(){
-        try {
-            this.dataToReceiveFromServer = (ClypeData) this.inFromServer.readObject();
-        }catch (IOException ioe){
-            System.out.println(ioe.getMessage());
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-    }
+  }
 
-    public void printData(){
-        try {
-            switch (this.dataToReceiveFromServer.getType()) {
-                case (-1): {
-                    if(((String) this.dataToReceiveFromServer.getData()).length() >= 1)
-                        this.users = (String) this.dataToReceiveFromServer.getData();
-                    break;
-                }
-                case (1): {
-                    String temp = (String) this.dataToReceiveFromServer.getData();
-                    for (int emojiIndex = 0;emojiIndex < keyboardEmojis.length;emojiIndex++) {
-                        temp = temp.replace(keyboardEmojis[emojiIndex], unicodeEmojis[emojiIndex]);
-                    }
-                    this.userMessage = temp;
-                    this.currentSneder = dataToReceiveFromServer.getUserName();
-                    this.dataToReceiveFromServer = null;
-                    break;
-                }
-                case (4): {
-                    this.pictueRecieved = (byte[]) this.dataToReceiveFromServer.getData();
-                    this.currentSneder = dataToReceiveFromServer.getUserName();
-                    this.dataToReceiveFromServer = null;
-                    break;
-                }case (5): {
-                    this.videoRecieved= (byte[]) this.dataToReceiveFromServer.getData();
-                    this.currentSneder = dataToReceiveFromServer.getUserName();
-                    this.dataToReceiveFromServer = null;
-                    break;
-                }
-            }
-            isRecieved =true;
-        }catch (Exception e){
-            e.printStackTrace();
-        }
+  public Optional<ClypeData<?>> receiveData() {
+    try {
+      ClypeData<?> receivedData = (ClypeData<?>) this.in.readObject();
+      if (receivedData.getType().equals(ClypeData.Type.LOG_OUT)) {
+        closeConnection = true;
+      } else if (receivedData.getType().equals(ClypeData.Type.LIST_USERS)) {
+        activeUsers.clear();
+        activeUsers.addAll(
+            Arrays.stream(((String) receivedData.getData()).split(":"))
+                .collect(Collectors.toList()));
+      }
+      return Optional.of(receivedData);
+    } catch (Exception e) {
+      return Optional.empty();
     }
-    public void setUserInput(String userInput){this.userInput = userInput;this.recievedInput=true;}
-    public Boolean getIsRecieved(){return this.isRecieved;}
+  }
 
-    public String getUserMessage() { return this.userMessage; }
-    public byte[] getPicute() { return this.pictueRecieved; }
-    public byte[] getVideo() { return this.videoRecieved; }
+  public boolean getCloseConnection() {
+    return this.closeConnection;
+  }
 
-    public void clearMessage(){this.userMessage = null;}
-    public void clearPicture(){this.pictueRecieved = null;}
-    public void clearVideo(){this.videoRecieved = null;}
-    /**
-     * @return userName
-     */
-    public String getUserName(){
-        return this.userName;
-    }
-    public String getSenderUserName(){
-        return this.currentSneder;
-    }
+  public String getUsername() {
+    return username;
+  }
 
-    /**
-     * @return hostName
-     */
-    public String getHostName(){
-        return this.hostName;
-    }
+  public ArrayList<ClypeData<?>> getReceivedMessages() {
+    return new ArrayList<>(receiveQueue);
+  }
 
-    /**
-     * @return port
-     */
-    public int getPort(){
-        return this.port;
-    }
+  public ArrayList<String> getActiveUsers() {
+    return new ArrayList<>(activeUsers);
+  }
 
-    /**
-     * @return unique hashcode value
-     * Overrides super class
-     */
-    public boolean getCloseConnection() {return this.closeConnection;}
-    @Override
-    public int hashCode(){
-        int result = 17;
-        result = 37*result + port;
-        int temp = (this.closeConnection) ? 1:0;
-        result = 37*result + temp;
-        result = 37*result + this.userName.hashCode();
-        result = 37*result + this.hostName.hashCode();
-        if (this.dataToSendToServer != null)
-            result = 37*result + this.dataToSendToServer.hashCode();
-        if (this.dataToReceiveFromServer != null)
-            result = 37*result + this.dataToReceiveFromServer.hashCode();
-        return result;
-    }
+  public void clearReceivedMessagesQueue() {
+    receiveQueue.clear();
+  }
 
-    /**
-     * @param other Object to compare with
-     * @return true or false if equal or nor
-     * Overrides super class
-     */
-    @Override
-    public boolean equals(Object other){
-        if (!(other instanceof ClypeClient)){
-            return false;
-        }
-        ClypeClient otherClient = (ClypeClient) other;
-        return this.userName.equals(otherClient.userName) && this.hostName.equals(otherClient.hostName) && this.port == otherClient.port && this.closeConnection == otherClient.closeConnection && this.dataToSendToServer == otherClient.dataToSendToServer && this.dataToReceiveFromServer == otherClient.dataToReceiveFromServer;
-    }
-
-    /**
-     * @return formartted description of class using its variables
-     * Overrides super class
-     */
-    @Override
-    public String toString(){
-        try{
-        return "Username: " + userName +"\nHostname: " + hostName +"\nPort: " + port + "\nConnection: " + this.closeConnection + "\n" + this.dataToSendToServer.toString() + "\n" + this.dataToReceiveFromServer.toString();
-        }catch (NullPointerException e){
-            return "Username: " + userName +"\nHostname: " + hostName +"\nPort: " + port + "\nConnection: " + this.closeConnection + "\nnull dataToReceiveFromClient or null dataToSendFromClient";
-        }
-        }
+  private void setUserNameOnStream(String userName) throws IOException {
+    out.writeUTF(userName);
+    out.flush();
+  }
 }
