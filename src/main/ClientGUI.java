@@ -1,9 +1,6 @@
 package main;
 
-import data.ClypeData;
-import data.MessageClypeData;
-import data.PictureCypeData;
-import data.VideoClypeData;
+import data.*;
 import javafx.application.Application;
 import javafx.collections.FXCollections;
 import javafx.collections.ListChangeListener;
@@ -151,7 +148,17 @@ public class ClientGUI extends Application {
             rawMessages.put(data.getSender() + ":" + messageIndex, mediaControl);
             messageIndex += 1;
           }
-          case FILE -> {}
+          case FILE -> {
+            FileClypeData.ClypeFile receivedData = (FileClypeData.ClypeFile) data.getData();
+            receivedData.writeFileContents();
+            Label messageReceived = new Label();
+            messageReceived.setText(String.format("File received and written to %s", receivedData.getFileName()));
+            messageReceived.setWrapText(true);
+            messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
+            height[0] += messageReceived.getHeight() + 10;
+            rawMessages.put(data.getSender() + ":" + messageIndex, messageReceived);
+            messageIndex++;
+          }
           case LIST_USERS -> { usersList = client.getActiveUsers(); }
           case LOG_OUT -> {guiCloseConnection = true;}
           default -> throw new IllegalStateException("Unexpected value: " + data.getType());
@@ -281,6 +288,7 @@ public class ClientGUI extends Application {
 
         Button attachPicture = new Button("Attach Picture");
         Button attachVideo = new Button("Attach Video");
+        Button attachFile = new Button("Attach file");
         attachPicture.setOnAction(
                 ae -> {
                   String fieldPath = attachMedia();
@@ -303,6 +311,17 @@ public class ClientGUI extends Application {
                     }
                   }
                 });
+        attachFile.setOnAction(
+                ae -> {
+                  String fieldPath = attachMedia();
+                  if (fieldPath.length() > 1){
+                    try {
+                      client.sendData(new FileClypeData(client.getUsername(), Collections.EMPTY_LIST, fieldPath));
+                    } catch (Exception e) {
+                      LOGGER.severe(e.getMessage());
+                    }
+                  }
+                });
 
         //==============================================================================================================
         online.getChildren().add(whoIsOnline);
@@ -313,9 +332,11 @@ public class ClientGUI extends Application {
         sendBtn.getStyleClass().add("button");
         attachPicture.getStyleClass().add("button");
         attachVideo.getStyleClass().add("button");
+        attachFile.getStyleClass().add("button");
         buttons.getChildren().add(sendBtn);
         buttons.getChildren().add(attachPicture);
         buttons.getChildren().add(attachVideo);
+        buttons.getChildren().add(attachFile);
         buttons.getStyleClass().add("buttons");
         userInterface.getChildren().add(message);
         userInterface.getChildren().add(buttons);

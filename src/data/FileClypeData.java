@@ -77,5 +77,9 @@ public class FileClypeData extends ClypeData<FileClypeData.ClypeFile> {
       out.write(this.fileContents);
       out.close();
     }
+
+    public String getFileName(){
+      return fileName;
+    }
   }
 }
