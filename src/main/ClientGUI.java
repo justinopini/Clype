@@ -20,6 +20,7 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.Stage;
+import javafx.util.Pair;
 import main.SchedulerUtils.TimerService;
 
 import javax.swing.*;
@@ -28,8 +29,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.*;
 import java.util.logging.Logger;
 
 public class ClientGUI extends Application {
@@ -69,12 +70,11 @@ public class ClientGUI extends Application {
       };
   private static final Logger LOGGER = Logger.getGlobal();
   private static ClypeClient client;
-  private final Map<String, Node> rawMessages = new HashMap<>();
-  private final ArrayList<String> authorizedSenders = new ArrayList<>();
-  private final int[] height = {0};
+  private final ArrayList<Pair<String, Node>> rawMessages = new ArrayList<>();
+  private final ArrayList<String> authorizedRecipients = new ArrayList<>();
   private final GridPane root = new GridPane();
+  private int height = 0;
   private ArrayList<String> usersList = new ArrayList<>();
-  private int messageIndex;
 
   private static String attachMedia(){
     String filePath = "";
@@ -112,9 +112,8 @@ public class ClientGUI extends Application {
             messageReceived.setText(receivedData);
             messageReceived.setWrapText(true);
             messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
-            height[0] += messageReceived.getHeight() + 10;
-            rawMessages.put(data.getSender() + ":" + messageIndex, messageReceived);
-            messageIndex++;
+            height += messageReceived.getHeight() + 10;
+            rawMessages.add(new Pair<>(data.getSender(), messageReceived));
           }
           case IMAGE ->  {
             ImageView im = new ImageView();
@@ -123,9 +122,8 @@ public class ClientGUI extends Application {
             im.setFitHeight(image.getHeight() / scaling);
             im.setFitWidth(image.getWidth() / scaling);
             im.setImage(image);
-            height[0] += im.getFitHeight() + 10;
-            rawMessages.put(data.getSender() + ":" + messageIndex, im);
-            messageIndex++;
+            height += im.getFitHeight() + 10;
+            rawMessages.add(new Pair<>(data.getSender(), im));
           }
           case VIDEO ->  {
             File nf = new File("video_temp_location_for_memory.mp4");
@@ -144,9 +142,8 @@ public class ClientGUI extends Application {
             mediaControl.mediaView.setFitHeight(250);
             mediaControl.setMaxHeight(250);
             mediaControl.setMaxWidth(250);
-            height[0] += mediaControl.getMaxHeight() + 10;
-            rawMessages.put(data.getSender() + ":" + messageIndex, mediaControl);
-            messageIndex += 1;
+            height += mediaControl.getMaxHeight() + 10;
+            rawMessages.add(new Pair<>(data.getSender(), mediaControl));
           }
           case FILE -> {
             FileClypeData.ClypeFile receivedData = (FileClypeData.ClypeFile) data.getData();
@@ -155,9 +152,8 @@ public class ClientGUI extends Application {
             messageReceived.setText(String.format("File received and written to %s", receivedData.getFileName()));
             messageReceived.setWrapText(true);
             messageReceived.setTextAlignment(TextAlignment.JUSTIFY);
-            height[0] += messageReceived.getHeight() + 10;
-            rawMessages.put(data.getSender() + ":" + messageIndex, messageReceived);
-            messageIndex++;
+            height += messageReceived.getHeight() + 10;
+            rawMessages.add(new Pair<>(data.getSender(), messageReceived));
           }
           case LIST_USERS -> { usersList = client.getActiveUsers(); }
           case LOG_OUT -> {guiCloseConnection = true;}
@@ -199,8 +195,9 @@ public class ClientGUI extends Application {
 
       launchGUI.setOnAction(
           ae -> {
-            authorizedSenders.clear();
-            authorizedSenders.addAll(userView.getSelectionModel().getSelectedItems());
+            authorizedRecipients.clear();
+            authorizedRecipients.addAll(userView.getSelectionModel().getSelectedItems());
+            authorizedRecipients.add(client.getUsername());
             PrimaryStage stage = new PrimaryStage();
             stage.sizeToScene();
             stage.show();
@@ -220,7 +217,6 @@ public class ClientGUI extends Application {
     PrimaryStage() {
       super();
       try {
-        final int[] messageIndexes = {0};
         HBox messageString = new HBox();
         VBox messagesSent = new VBox();
         VBox messagesReceived = new VBox();
@@ -240,31 +236,28 @@ public class ClientGUI extends Application {
         TimerService service = TimerService.getNewTimeService(2);
         service.setOnSucceeded(
                 t -> {
-                  for (String user : rawMessages.keySet()) {
-                    if (Integer.parseInt(user.split(":")[1]) > messageIndexes[0]) {
-                      if (height[0] > 500) {
-                        messagesSent.getChildren().remove(0);
-                        messagesReceived.getChildren().remove(0);
-                      }
-                      Node todisplay = rawMessages.get(user);
-                      if (user.split(":")[0].equals("")) {
-                        todisplay.getStyleClass().add("messageBubbleSent");
-                        messagesSent.getChildren().add(todisplay);
-                        Label holder = new Label();
-                        holder.getStyleClass().add("holder");
-                        messagesReceived.getChildren().add(holder);
-                      } else {
-                        if (authorizedSenders.contains(user.split(":")[0])) {
-                          todisplay.getStyleClass().add("messageBubbleRecieved");
-                          messagesReceived.getChildren().add(todisplay);
-                          Label holder = new Label();
-                          holder.getStyleClass().add("holder");
-                          messagesSent.getChildren().add(holder);
-                        }
-                      }
-                      messageIndexes[0] += 1;
-                      height[0] += 120;
+                  while (!rawMessages.isEmpty()) {
+                    Pair<String, Node> pair  = rawMessages.remove(0);
+                    // Clear up some space if we need it.
+                    if (height > 500) {
+                      messagesSent.getChildren().remove(0);
+                      messagesReceived.getChildren().remove(0);
                     }
+                    Node node = pair.getValue();
+                    if (pair.getKey().equals(client.getUsername())) {
+                      node.getStyleClass().add("messageBubbleSent");
+                      messagesSent.getChildren().add(node);
+                      Label holder = new Label();
+                      holder.getStyleClass().add("holder");
+                      messagesReceived.getChildren().add(holder);
+                    } else {
+                      node.getStyleClass().add("messageBubbleReceived");
+                      messagesReceived.getChildren().add(node);
+                      Label holder = new Label();
+                      holder.getStyleClass().add("holder");
+                      messagesSent.getChildren().add(holder);
+                    }
+                    height += 120;
                   }
                   observableUsersList.setAll(usersList);
                   users.setItems(observableUsersList);
@@ -279,7 +272,7 @@ public class ClientGUI extends Application {
         sendBtn.setOnAction(
                 ae -> {
                   try {
-                    client.sendData(new MessageClypeData(client.getUsername(), Collections.EMPTY_LIST, message.getText()));
+                    client.sendData(new MessageClypeData(client.getUsername(), authorizedRecipients, message.getText()));
                   } catch (Exception e) {
                     LOGGER.severe(e.getMessage());
                   }
@@ -294,7 +287,7 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new PictureCypeData(client.getUsername(), Collections.EMPTY_LIST, fieldPath));
+                      client.sendData(new PictureCypeData(client.getUsername(), authorizedRecipients, fieldPath));
                     } catch (Exception e) {
                       LOGGER.severe(e.getMessage());
                     }
@@ -305,7 +298,7 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new VideoClypeData(client.getUsername(), Collections.EMPTY_LIST, fieldPath));
+                      client.sendData(new VideoClypeData(client.getUsername(), authorizedRecipients, fieldPath));
                     } catch (Exception e) {
                       LOGGER.severe(e.getMessage());
                     }
@@ -316,7 +309,7 @@ public class ClientGUI extends Application {
                   String fieldPath = attachMedia();
                   if (fieldPath.length() > 1){
                     try {
-                      client.sendData(new FileClypeData(client.getUsername(), Collections.EMPTY_LIST, fieldPath));
+                      client.sendData(new FileClypeData(client.getUsername(), authorizedRecipients, fieldPath));
                     } catch (Exception e) {
                       LOGGER.severe(e.getMessage());
                     }
