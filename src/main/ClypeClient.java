@@ -28,6 +28,8 @@ public class ClypeClient {
     if (username == null || hostName == null || port < 1024) {
       throw new IllegalArgumentException("Username/Hostname is null or port number is below 1024");
     }
+    
+    // Class variables
     this.username = username;
     this.hostName = hostName;
     this.port = port;
